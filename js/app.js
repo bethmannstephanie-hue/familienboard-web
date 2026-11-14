@@ -5,7 +5,7 @@ import { isoDate, wallOfIso } from './ical.js';
 import { isBlock, STATE_LABEL } from './school.js';
 import { categoryOf, categoryRank, parseItems, CATEGORIES } from './shopping.js';
 import { isDark } from './sun.js';
-import { upcomingMeals, mealDayLabel, mealDuration } from './meals.js';
+import { upcomingMeals, mealDayLabel, mealDuration, MEAL_DAYS } from './meals.js';
 
 const DAY = 86400000;
 const $app = document.getElementById('app');
@@ -527,10 +527,11 @@ function viewShop() {
 /** Cookidoo-Wochenplan (E27): nur anzeigen, kein Antippen – wie MealPlanCard in der App. */
 function mealCard() {
   const today = S.todayIso();
+  if (!S.state.meals) return null; // keine wochenplan.json → keine Karte
   const days = upcomingMeals(S.state.meals, today);
-  if (!days.length) return null;
   return h('div', { class: 'card meals', style: { marginBottom: '14px' } },
-    h('div', { class: 'section', style: { paddingTop: '0' } }, icon('pot'), h('span', { class: 'grow', style: { marginLeft: '8px' } }, 'Diese Woche geplant')),
+    h('div', { class: 'section', style: { paddingTop: '0' } }, icon('pot'), h('span', { class: 'grow', style: { marginLeft: '8px' } }, `Die nächsten ${MEAL_DAYS} Tage`)),
+    days.length ? null : h('div', { class: 'empty' }, `Noch nichts geplant – in Cookidoo für die nächsten ${MEAL_DAYS} Tage Rezepte in den Wochenplan legen.`),
     days.map((d) => h('div', { class: 'meal-day' + (d.date === today ? ' today' : '') },
       h('div', { class: 'meal-label' }, mealDayLabel(d.date, today)),
       h('div', { class: 'meal-list' }, d.meals.map((m) => h('div', { class: 'meal' },
