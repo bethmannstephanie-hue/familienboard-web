@@ -13,6 +13,7 @@ const DAY = 86400000;
 export const FAMILY_FILE = 'Familienboard/familie.json';
 export const SCHOOL_FILE = 'Familienboard/schule.json';
 export const SUBS_FILE = 'Familienboard/abos.json';
+export const MEALS_FILE = 'Familienboard/wochenplan.json';
 
 // ---------------- Kleiner Schlüssel-Wert-Speicher ----------------
 
@@ -58,6 +59,7 @@ export const state = {
   events: [],
   todos: [],
   school: null, // Inhalt von schule.json
+  meals: null, // Inhalt von wochenplan.json (Cookidoo, E27)
   photos: {}, // memberId -> Objekt-URL
   weather: null,
   syncing: false,
@@ -142,11 +144,12 @@ export async function logout() {
 export async function boot() {
   if (!state.login) { emit(); return; }
   client = new DavClient(state.login.server, state.login.user, state.login.password);
-  const [fam, cols, school, subs, weather] = await Promise.all([kv.get('family'), kv.get('collections'), kv.get('school'), kv.get('subs'), kv.get('weather')]);
+  const [fam, cols, school, subs, weather, meals] = await Promise.all([kv.get('family'), kv.get('collections'), kv.get('school'), kv.get('subs'), kv.get('weather'), kv.get('meals')]);
   if (fam) state.family = fam.data;
   if (cols) state.collections = cols;
   if (school) state.school = school.data;
   if (subs) subsData = subs.data;
+  if (meals) state.meals = meals.data;
   if (weather) state.weather = weather;
   for (const id of activeIds()) {
     const c = await kv.get('coll:' + id);
@@ -222,14 +225,15 @@ async function doSync(full) {
     };
     await Promise.all([worker(), worker(), worker(), worker()]);
     // 4. Stundenplan und von Hand eingetragene Abos (schreibt das Hauptgerät)
-    for (const [file, key] of [[SCHOOL_FILE, 'school'], [SUBS_FILE, 'subs']]) {
+    for (const [file, key] of [[SCHOOL_FILE, 'school'], [SUBS_FILE, 'subs'], [MEALS_FILE, 'meals']]) {
       try {
         const cached = await kv.get(key);
         const f = await client.getFile(file, cached?.etag || null);
+        if (f === null && key === 'meals') { await kv.set(key, null); state.meals = null; continue; }
         if (f && !f.unchanged) {
           const data = JSON.parse(f.text.replace(/^﻿/, ''));
           await kv.set(key, { data, etag: f.etag });
-          if (key === 'school') state.school = data; else subsData = data;
+          if (key === 'school') state.school = data; else if (key === 'meals') state.meals = data; else subsData = data;
         }
       } catch (e) { if (e.code === 401) throw e; }
     }

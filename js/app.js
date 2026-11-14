@@ -5,6 +5,7 @@ import { isoDate, wallOfIso } from './ical.js';
 import { isBlock, STATE_LABEL } from './school.js';
 import { categoryOf, categoryRank, parseItems, CATEGORIES } from './shopping.js';
 import { isDark } from './sun.js';
+import { upcomingMeals, mealDayLabel, mealDuration } from './meals.js';
 
 const DAY = 86400000;
 const $app = document.getElementById('app');
@@ -28,6 +29,7 @@ function h(tag, props, ...kids) {
 }
 
 const ICONS = {
+  pot: '<path d="M4 10h16v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M2 10h2M20 10h2"/><path d="M9.5 3.5c-.6.8-.6 1.7 0 2.5M14.5 3.5c-.6.8-.6 1.7 0 2.5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
@@ -512,6 +514,7 @@ function viewShop() {
     h('form', { class: 'addrow', onsubmit: (ev) => { ev.preventDefault(); add(); } },
       h('input', { 'data-focus': 'shop', placeholder: 'Milch, Brot und Äpfel …', enterkeyhint: 'done', autocomplete: 'off' }),
       h('button', { class: 'round accent', style: { width: '52px', height: '52px' }, type: 'submit', title: 'Hinzufügen' }, icon('plus'))),
+    mealCard(),
     open.length ? h('div', { class: 'shop' }, [...groups].map(([c, list]) => h('div', { class: 'card' },
       h('div', { class: 'section', style: { paddingTop: '0' } }, c), list.map((t) => todoRow(t, 'var(--accent)'))))) : h('div', { class: 'card' }, h('div', { class: 'empty' }, 'Die Einkaufsliste ist leer.')),
     done.length ? h('div', { class: 'card', style: { marginTop: '14px' } },
@@ -519,6 +522,20 @@ function viewShop() {
         h('button', { class: 'btn flat', onclick: () => run(() => S.removeCompletedShopping(), (n) => `${n} erledigte gelöscht`) }, 'Erledigte löschen')),
       done.map((t) => todoRow(t, 'var(--faint)'))) : null,
   ];
+}
+
+/** Cookidoo-Wochenplan (E27): nur anzeigen, kein Antippen – wie MealPlanCard in der App. */
+function mealCard() {
+  const today = S.todayIso();
+  const days = upcomingMeals(S.state.meals, today);
+  if (!days.length) return null;
+  return h('div', { class: 'card meals', style: { marginBottom: '14px' } },
+    h('div', { class: 'section', style: { paddingTop: '0' } }, icon('pot'), h('span', { class: 'grow', style: { marginLeft: '8px' } }, 'Diese Woche geplant')),
+    days.map((d) => h('div', { class: 'meal-day' + (d.date === today ? ' today' : '') },
+      h('div', { class: 'meal-label' }, mealDayLabel(d.date, today)),
+      h('div', { class: 'meal-list' }, d.meals.map((m) => h('div', { class: 'meal' },
+        h('span', { class: 'meal-name' }, m.name),
+        mealDuration(m.dauerMin) ? h('span', { class: 'meal-time' }, mealDuration(m.dauerMin)) : null))))));
 }
 
 // ---------------- Dialoge ----------------

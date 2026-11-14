@@ -151,6 +151,14 @@ main { flex: 1; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch
 .btn.text { background: none; color: var(--accent); padding: 0 8px; }
 .shop { columns: 320px; column-gap: 14px; }
 .shop .card { break-inside: avoid; margin: 0 0 14px; }
+.meals .section .i { color: var(--accent); }
+.meal-day { display: flex; gap: 12px; padding: 4px 6px; align-items: baseline; }
+.meal-label { width: 88px; flex: none; color: var(--muted); font-size: calc(15px * var(--fs)); }
+.meal-day.today .meal-label { color: var(--accent); font-weight: 700; }
+.meal-list { flex: 1; min-width: 0; }
+.meal { display: flex; gap: 8px; align-items: baseline; font-size: calc(17px * var(--fs)); }
+.meal-day.today .meal-name { font-weight: 600; }
+.meal-time { color: var(--faint); font-size: calc(13px * var(--fs)); white-space: nowrap; }
 
 /* ---------- Dialoge ---------- */
 .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: grid; place-items: center; z-index: 10; padding: 16px; }
