@@ -5,7 +5,7 @@ import { isoDate, wallOfIso } from './ical.js';
 import { isBlock, STATE_LABEL } from './school.js';
 import { categoryOf, categoryRank, parseItems, CATEGORIES } from './shopping.js';
 import { isDark } from './sun.js';
-import { upcomingMeals, mealDayLabel, mealDuration, MEAL_DAYS } from './meals.js';
+import { upcomingMeals, mealDayLabel, mealDuration, mealHeadline, MEAL_DAYS } from './meals.js';
 
 const DAY = 86400000;
 const $app = document.getElementById('app');
@@ -199,9 +199,22 @@ function header() {
     w && w.temp !== undefined ? h('div', { class: 'weather', title: S.state.family?.weatherPlace || '' },
       weatherEmoji(w.code), ` ${Math.round(w.temp)}°`,
       today ? h('small', {}, ` ${Math.round(today.min)}° / ${Math.round(today.max)}°`) : null) : null,
+    ui.view === 'columns' ? mealChip(now) : null,
     h('button', { class: 'round', title: 'Aktualisieren', onclick: () => S.sync(true) }, S.state.syncing ? h('span', { class: 'spin', style: { display: 'grid' } }, icon('refresh')) : icon('refresh')),
     h('button', { class: 'round', title: 'Einstellungen', onclick: openSettings }, icon('settings')),
   );
+}
+
+/** Gericht des Tages neben dem Wetter (E27) – nur im Reiter Personen; sichtbar nur im Querformat mit genug Platz (CSS). */
+function mealChip(now) {
+  const m = S.state.meals ? mealHeadline(upcomingMeals(S.state.meals, isoDate(now)), now) : null;
+  if (!m) return null;
+  const first = m.meals[0];
+  const sub = [m.label, m.meals.length === 1 ? mealDuration(first.dauerMin) : null].filter(Boolean).join(' · ');
+  return h('div', { class: 'meal-chip' }, icon('pot'),
+    h('div', { class: 'meal-chip-text' },
+      h('div', { class: 'meal-chip-name' }, first.name + (m.meals.length > 1 ? ` + ${m.meals.length - 1}` : '')),
+      h('div', { class: 'meal-chip-sub' + (m.label === 'Morgen' ? ' tomorrow' : '') }, sub)));
 }
 
 function statusLine() {

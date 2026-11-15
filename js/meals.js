@@ -25,6 +25,18 @@ export function upcomingMeals(file, todayIso, days = MEAL_DAYS) {
   return [...byDate].sort(([a], [b]) => (a < b ? -1 : 1)).map(([date, meals]) => ({ date, meals }));
 }
 
+/** Ab dieser Stunde zeigt die Kopfzeile schon das Gericht von morgen (wie MealPlan.TOMORROW_FROM_HOUR). */
+export const TOMORROW_FROM_HOUR = 19;
+
+/** Gericht für die Kopfzeile: bis 19 Uhr heute, danach morgen; null, wenn nichts geplant. wall = Wanduhr-ms (UTC-Felder). */
+export function mealHeadline(days, wall) {
+  const today = new Date(wall).toISOString().slice(0, 10);
+  const tomorrow = new Date(wall).getUTCHours() >= TOMORROW_FROM_HOUR;
+  const day = tomorrow ? addDays(today, 1) : today;
+  const meals = days.find((d) => d.date === day)?.meals || [];
+  return meals.length ? { label: tomorrow ? 'Morgen' : 'Heute', meals } : null;
+}
+
 const WD = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 
 /** „Heute“, „Morgen“ oder „Mo 17.11.“ */
