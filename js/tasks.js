@@ -81,3 +81,43 @@ export function projectSteps(todos, listId, now) {
   return todos.filter((t) => t.collectionId === listId && recentlyVisible(t, now))
     .sort(cmp((t) => (t.completed ? 1 : 0), (t) => t.due || '9999', prio, (t) => t.summary.toLowerCase()));
 }
+
+// ---------------- Übersicht (E31) ----------------
+
+export const DUE_GROUPS = [['OVERDUE', 'Überfällig'], ['TODAY', 'Heute'], ['TOMORROW', 'Morgen'], ['LATER', 'Später'], ['NO_DATE', 'Ohne Datum']];
+
+export function dueGroupOf(t, todayIso) {
+  if (!t.due) return 'NO_DATE';
+  if (t.due < todayIso) return 'OVERDUE';
+  if (t.due === todayIso) return 'TODAY';
+  if (t.due === addDays(todayIso, 1)) return 'TOMORROW';
+  return 'LATER';
+}
+
+/** Offene normale Aufgaben nach Fälligkeit gruppiert: [[key, label, items], …] ohne leere Gruppen. */
+export function openByDue(todos, ids, todayIso) {
+  const open = todos.filter((t) => ids.has(t.collectionId) && !t.completed)
+    .sort(cmp((t) => t.due || '9999', (t) => t.dueTime || '99', prio, (t) => t.summary.toLowerCase()));
+  return DUE_GROUPS.map(([k, l]) => [k, l, open.filter((t) => dueGroupOf(t, todayIso) === k)]).filter(([, , items]) => items.length);
+}
+
+/** Stand der Routinen heute und der nächste offene Punkt (zuerst im aktuellen Block). */
+export function routineSummary(todos, ids, now) {
+  const today = isoOf(now);
+  const list = todos.filter((t) => ids.has(t.collectionId));
+  const open = list.filter((t) => !doneToday(t, today)).sort(routineOrder);
+  const slot = currentSlot(now);
+  const next = open.find((t) => slotOf(t) === slot) || open.find((t) => slotOf(t) === 'ALL_DAY') || open[0] || null;
+  return { done: list.length - open.length, total: list.length, next };
+}
+
+export function nextStep(todos, listId) {
+  return todos.filter((t) => t.collectionId === listId && !t.completed)
+    .sort(cmp((t) => t.due || '9999', prio, (t) => t.summary.toLowerCase()))[0] || null;
+}
+
+/** Projekte für die Auswahl: ohne Auswahl alle; sonst nur die der gewählten Personen (owner = Funktion id → Person). */
+export function projectsFor(lists, selected, ownerIdOf) {
+  if (!selected.size) return lists;
+  return lists.filter((l) => selected.has(ownerIdOf(l.id)));
+}

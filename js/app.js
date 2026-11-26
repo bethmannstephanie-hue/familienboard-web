@@ -462,19 +462,80 @@ function searchResults(q, today) {
 
 // ---------------- Aufgaben ----------------
 
+function taskChips(filter) {
+  const toggle = (id) => {
+    if (id === null) ui.filter = [];
+    else ui.filter = filter.has(id) ? ui.filter.filter((x) => x !== id) : [...ui.filter, id];
+    saveUi();
+    render();
+  };
+  return h('div', { class: 'chips', style: { padding: '0', flex: '1' } },
+    h('button', { class: 'chip plain' + (filter.size ? '' : ' on'), onclick: () => toggle(null) }, 'Alle'),
+    S.members().map((m) => h('button', { class: 'chip' + (filter.has(m.id) ? ' on' : ''), style: { '--c': S.memberColor(m) }, onclick: () => toggle(m.id) }, avatar(m, 28), m.name)));
+}
+
 function viewTasks() {
-  const modes = [];
+  const modes = [['overview', 'Übersicht']];
   if (S.members().some((m) => routineIds(m).size)) modes.push(['routines', 'Routinen']);
   if (projectLists().length) modes.push(['projects', 'Projekte']);
   modes.push(['tasks', 'Aufgaben']);
   const mode = modes.some(([k]) => k === ui.taskMode) ? ui.taskMode : modes[0][0];
-  const seg = modes.length > 1 ? h('div', { class: 'seg' }, modes.map(([k, l]) =>
-    h('button', { class: mode === k ? 'on' : '', onclick: () => { ui.taskMode = k; render(true); } }, l))) : null;
+  const filter = new Set(ui.filter);
+  const people = S.members().filter((m) => !filter.size || filter.has(m.id));
+  const seg = h('div', { class: 'seg', style: { margin: '0' } }, modes.map(([k, l]) =>
+    h('button', { class: mode === k ? 'on' : '', onclick: () => { ui.taskMode = k; render(true); } }, l)));
+  const bar = h('div', { class: 'taskbar' }, taskChips(filter), seg);
   const today = S.todayIso();
   const now = S.nowWall();
+  const projects = T.projectsFor(projectLists(), filter, (id) => S.ownerOf(id)?.id);
   const cards = [];
+  const projectCard = (c, full, standalone = true) => {
+    const owner = S.ownerOf(c.id);
+    const color = owner ? S.memberColor(owner) : 'var(--accent)';
+    const p = T.progress(S.state.todos, c.id);
+    const next = T.nextStep(S.state.todos, c.id);
+    return h('div', { class: standalone ? 'card' : 'prow' },
+      h('div', { class: 'head' }, owner ? avatar(owner, full ? 34 : 28) : null,
+        h('div', { class: 'grow' }, h('div', { class: 'name' }, c.name), h('div', { class: 'sub' }, p.total ? `${p.done} von ${p.total} erledigt` : 'noch keine Schritte')),
+        !c.readOnly ? h('button', { class: 'round small', style: { background: 'var(--card-alt)' }, title: 'Neuer Schritt', onclick: () => newTodoIn(owner, c.id) }, icon('plus')) : null),
+      progressBar(p.fraction, color),
+      full ? T.projectSteps(S.state.todos, c.id, now).map((t) => todoRow(t, color))
+        : h('div', { class: 'sub', style: { padding: '0 6px 6px' } }, next ? 'Nächster Schritt: ' + next.summary + (next.due ? ' · ' + dueLabel(next, today) : '') : (p.total ? 'Alles erledigt' : '')));
+  };
+  if (mode === 'overview') {
+    // Routinen heute
+    const rp = people.filter((m) => routineIds(m).size);
+    const sums = rp.map((m) => [m, T.routineSummary(S.state.todos, routineIds(m), now)]);
+    const done = sums.reduce((a, [, x]) => a + x.done, 0), total = sums.reduce((a, [, x]) => a + x.total, 0);
+    let rBody;
+    if (!rp.length) rBody = h('div', { class: 'empty' }, 'Keine Routinen eingerichtet');
+    else if (rp.length === 1) {
+      const m = rp[0]; const ids = routineIds(m);
+      rBody = T.routinesBySlot(S.state.todos, ids).flatMap(([slot, list]) => routineGroup(T.SLOT_LABEL[slot], list, S.memberColor(m)));
+    } else rBody = sums.map(([m, x]) => h('button', { class: 'rsum', onclick: () => { ui.filter = [m.id]; saveUi(); render(); } }, avatar(m, 36),
+      h('div', { class: 'grow' }, h('div', { class: 'line' }, h('b', {}, m.name), h('span', { class: 'cnt' }, `${x.done}/${x.total}`)),
+        progressBar(x.total ? x.done / x.total : 0, S.memberColor(m)),
+        h('div', { class: 'sub' }, x.next ? 'als Nächstes: ' + x.next.summary + (x.next.dueTime ? ' · ' + x.next.dueTime.replace(/^0/, '') : '') : 'Alles erledigt'))));
+    cards.push(h('div', { class: 'card' }, h('div', { class: 'head' }, h('div', { class: 'grow' }, h('div', { class: 'name' }, 'Routinen heute'), total ? h('div', { class: 'sub' }, `${done} von ${total} erledigt`) : null)), rBody));
+    // Aufgaben
+    const ids = new Set(people.flatMap((m) => [...plainIds(m)]));
+    const groups = T.openByDue(S.state.todos, ids, today);
+    const open = groups.reduce((a, [, , l]) => a + l.length, 0);
+    const target = people.find((m) => canWritePlain(m));
+    cards.push(h('div', { class: 'card' },
+      h('div', { class: 'head' }, h('div', { class: 'grow' }, h('div', { class: 'name' }, 'Aufgaben'), h('div', { class: 'sub' }, open ? `${open} offen` : 'nichts offen')),
+        target ? h('button', { class: 'round small', style: { background: 'var(--card-alt)' }, onclick: () => newTodo(target) }, icon('plus')) : null),
+      groups.length ? groups.flatMap(([k, l, items]) => [h('div', { class: 'section' + (k === 'OVERDUE' ? ' late' : '') }, l),
+        ...items.map((t) => { const o = S.ownerOf(t.collectionId); return people.length > 1 && o ? h('div', { class: 'withav' }, avatar(o, 26), h('div', { style: { flex: 1 } }, todoRow(t, S.memberColor(o)))) : todoRow(t, o ? S.memberColor(o) : 'var(--accent)'); })])
+        : h('div', { class: 'empty' }, 'Alles erledigt')));
+    // Projekte
+    cards.push(h('div', { class: 'card' }, h('div', { class: 'head' }, h('div', { class: 'grow' }, h('div', { class: 'name' }, 'Projekte'))),
+      projects.length ? projects.map((c) => projectCard(c, filter.size === 1, false))
+        : h('div', { class: 'empty' }, projectLists().length ? 'Keine Projekte' : 'Keine Projekte eingerichtet')));
+    return [bar, h('div', { class: 'overview' }, cards)];
+  }
   if (mode === 'routines') {
-    for (const m of S.members()) {
+    for (const m of people) {
       const ids = routineIds(m);
       if (!ids.size) continue;
       const items = S.state.todos.filter((t) => ids.has(t.collectionId)).map((t) => T.asRoutine(t, today));
@@ -487,20 +548,9 @@ function viewTasks() {
           : h('div', { class: 'empty' }, 'Noch keine Routinen')));
     }
   } else if (mode === 'projects') {
-    for (const c of projectLists()) {
-      const owner = S.ownerOf(c.id);
-      const color = owner ? S.memberColor(owner) : 'var(--accent)';
-      const p = T.progress(S.state.todos, c.id);
-      const steps = T.projectSteps(S.state.todos, c.id, now);
-      cards.push(h('div', { class: 'card' },
-        h('div', { class: 'head' }, owner && !owner.isFamily ? avatar(owner, 34) : null,
-          h('div', { class: 'grow' }, h('div', { class: 'name' }, c.name), h('div', { class: 'sub' }, p.total ? `${p.done} von ${p.total} erledigt` : 'noch keine Schritte')),
-          !c.readOnly ? h('button', { class: 'round small', style: { background: 'var(--card-alt)' }, title: 'Neuer Schritt', onclick: () => newTodoIn(owner, c.id) }, icon('plus')) : null),
-        progressBar(p.fraction, color),
-        steps.length ? steps.map((t) => todoRow(t, color)) : (p.total ? h('div', { class: 'empty' }, 'Alles erledigt 🎉') : null)));
-    }
+    for (const c of projects) cards.push(projectCard(c, true));
   } else {
-    for (const m of S.members()) {
+    for (const m of people) {
       const todos = memberAllTodos(m);
       const can = canWritePlain(m);
       if (!todos.length && !can) continue;
@@ -512,8 +562,8 @@ function viewTasks() {
         todos.length ? todos.map((t) => todoRow(t, S.memberColor(m))) : h('div', { class: 'empty' }, 'Keine Aufgaben')));
     }
   }
-  const body = cards.length ? h('div', { class: 'school-grid' }, cards) : h('div', { class: 'card' }, h('div', { class: 'empty' }, 'Keine Aufgabenlisten zugeordnet.'));
-  return seg ? [seg, body] : body;
+  const body = cards.length ? h('div', { class: 'school-grid' }, cards) : h('div', { class: 'card' }, h('div', { class: 'empty' }, 'Nichts für diese Auswahl.'));
+  return [bar, body];
 }
 
 // ---------------- Schule ----------------

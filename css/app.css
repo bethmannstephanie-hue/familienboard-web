@@ -233,3 +233,19 @@ main { flex: 1; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch
 .section.routine { display: flex; align-items: center; gap: 8px; }
 .section.routine .cnt { color: var(--faint); }
 .section.routine .cnt.all { color: var(--success, var(--accent)); }
+
+/* Aufgaben-Übersicht (E31) */
+.taskbar { display: flex; align-items: center; gap: 12px; padding: 0 4px 12px; flex-wrap: wrap; }
+.taskbar .chips { overflow-x: auto; flex-wrap: nowrap; }
+.overview { display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 14px; align-items: start; }
+.overview .card + .card { margin-top: 0; }
+.rsum { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 10px 4px; border-top: 1px solid var(--divider); }
+.rsum .grow { flex: 1; min-width: 0; }
+.rsum .line { display: flex; }
+.rsum .line b { flex: 1; font-weight: 600; }
+.rsum .cnt { color: var(--faint); font-weight: 600; font-size: calc(13px * var(--fs)); }
+.rsum .pbar { display: block; }
+.prow { border-top: 1px solid var(--divider); padding: 8px 0 4px; }
+.prow .head { padding: 0 2px; }
+.section.late { color: var(--danger); }
+@media (max-width: 1000px) { .overview { grid-template-columns: 1fr; } }
