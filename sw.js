@@ -2,7 +2,7 @@
 // Nextcloud-Daten laufen nicht hierüber – die liegen in IndexedDB (store.js).
 const CACHE = 'familienboard-web';
 const SHELL = ['./', 'index.html', 'css/app.css', 'js/app.js', 'js/store.js', 'js/dav.js', 'js/ical.js', 'js/rrule.js',
-  'js/meals.js', 'js/model.js', 'js/school.js', 'js/shopping.js', 'js/sun.js', 'manifest.webmanifest', 'icons/apple-touch-icon.png', 'icons/icon-192.png'];
+  'js/meals.js', 'js/model.js', 'js/school.js', 'js/shopping.js', 'js/sun.js', 'js/tasks.js', 'manifest.webmanifest', 'icons/apple-touch-icon.png', 'icons/icon-192.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

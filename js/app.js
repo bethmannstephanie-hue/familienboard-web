@@ -5,6 +5,7 @@ import { isoDate, wallOfIso } from './ical.js';
 import { isBlock, STATE_LABEL } from './school.js';
 import { categoryOf, categoryRank, parseItems, CATEGORIES } from './shopping.js';
 import { isDark } from './sun.js';
+import * as T from './tasks.js';
 import { upcomingMeals, mealDayLabel, mealDuration, mealHeadline, MEAL_DAYS } from './meals.js';
 
 const DAY = 86400000;
@@ -92,7 +93,6 @@ function reminderActive(e, now) {
   const end = e.end > e.start ? e.end : e.start + 60000;
   return now >= e.start - min * 60000 && now < end;
 }
-const visibleNow = (t, now) => !t.completed || (t.completedAt && t.completedAt > now - DAY);
 const countLabel = (n, one, many, none) => (n === 0 ? none : n === 1 ? `1 ${one}` : `${n} ${many}`);
 
 function avatar(m, size = 42) {
@@ -124,7 +124,9 @@ async function run(action, okText) {
 // ---------------- Zustand der Oberfläche (pro Gerät) ----------------
 
 function loadUi() { try { return JSON.parse(localStorage.getItem('fb.ui') || '{}'); } catch { return {}; } }
-const ui = { view: 'columns', filter: [], weekOffset: 0, search: '', schoolTab: null, ...loadUi() };
+const ui = { view: 'columns', filter: [], weekOffset: 0, search: '', schoolTab: null, taskMode: null, ...loadUi() };
+// Aufgaben in der Personen-Ansicht: heute und morgen (wie am Board, E29)
+const TASK_DAYS = 2;
 function saveUi() { try { localStorage.setItem('fb.ui', JSON.stringify({ view: ui.view, filter: ui.filter })); } catch { /* privat */ } }
 function setView(v) { ui.view = v; ui.search = ''; ui.weekOffset = 0; ui.schoolTab = null; saveUi(); render(true); }
 
@@ -257,11 +259,11 @@ function eventRow(e, d, opts = {}) {
   e.location && !opts.noLocation ? h('div', { class: 'l' }, e.location) : null);
 }
 
-function todoRow(t, color) {
+function todoRow(t, color, note = null) {
   const today = S.todayIso();
   const due = t.completed ? null : dueLabel(t, today);
   const rep = !t.completed && t.recurrence.freq !== 'NONE' ? '↻ ' + describeRecurrence(t.recurrence) : null;
-  const line = [due, rep].filter(Boolean).join(' · ');
+  const line = note !== null ? (t.completed ? '' : note) : [due, rep].filter(Boolean).join(' · ');
   return h('div', { class: 'todo' + (t.completed ? ' done' : ''), style: { '--c': color } },
     h('button', {
       class: 'check' + (t.completed ? ' on' : ''), disabled: t.readOnly, 'aria-label': t.completed ? 'Wieder öffnen' : 'Erledigt',
@@ -274,9 +276,51 @@ function todoRow(t, color) {
 
 function canWrite(m, kind) { return S.state.collections.some((c) => (m.collectionIds || []).includes(c.id) && c.kind === kind && !c.readOnly); }
 
+// Listen einer Person nach Art (E29): normale Aufgaben, Routinen; Projekte gehören niemandem allein
+const plainIds = (m) => new Set((m.collectionIds || []).filter((id) => S.collection(id)?.kind === 'TASKS' && T.isPlainList(S.state.family, id)));
+const routineIds = (m) => new Set((m.collectionIds || []).filter((id) => T.roleOf(S.state.family, id) === T.ROUTINE));
+const projectLists = () => S.state.collections.filter((c) => c.kind === 'TASKS' && T.roleOf(S.state.family, c.id) === T.PROJECT)
+  .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+const canWritePlain = (m) => S.state.collections.some((c) => plainIds(m).has(c.id) && !c.readOnly);
+
+/** Personen-Ansicht: nur Fälliges heute/morgen + Überfälliges. */
 function memberTodos(m) {
+  return T.dueSoon(S.state.todos, plainIds(m), S.todayIso(), TASK_DAYS, S.nowWall());
+}
+
+/** Aufgaben-Reiter: alle normalen Aufgaben (auch ohne Datum). */
+function memberAllTodos(m) { return T.allOpen(S.state.todos, plainIds(m), S.nowWall()); }
+
+function progressBar(fraction, color) {
+  return h('div', { class: 'pbar' }, h('div', { style: { width: Math.round(fraction * 100) + '%', background: color } }));
+}
+
+function routineGroup(title, items, color) {
+  const today = S.todayIso();
+  const shown = items.map((t) => T.asRoutine(t, today));
+  const done = shown.filter((t) => t.completed).length;
+  return [
+    h('div', { class: 'section routine' }, h('span', {}, title), h('span', { class: 'cnt' + (done === shown.length ? ' all' : '') }, `${done}/${shown.length}`),
+      progressBar(shown.length ? done / shown.length : 0, color)),
+    ...shown.map((t) => todoRow(t, color, t.dueTime ? t.dueTime.replace(/^0/, '') : '')),
+  ];
+}
+
+/** Routinen der Person für jetzt: vormittags Morgens, danach Abends, dazu ganztags. */
+function routinesNow(m) {
+  const ids = routineIds(m);
+  if (!ids.size) return [];
   const now = S.nowWall();
-  return S.state.todos.filter((t) => t.collectionId !== S.shoppingId() && (m.collectionIds || []).includes(t.collectionId) && visibleNow(t, now));
+  const list = T.routinesNow(S.state.todos, ids, now);
+  return list.length ? routineGroup(T.SLOT_LABEL[T.currentSlot(now)], list, S.memberColor(m)) : [];
+}
+
+function newTodoIn(member, listId) {
+  const routine = T.roleOf(S.state.family, listId) === T.ROUTINE;
+  todoEditor({
+    existing: null, collectionId: listId, summary: '', description: '',
+    due: routine ? S.todayIso() : null, dueTime: routine ? '07:00' : null, recurrence: parseRecurrence(null),
+  }, member);
 }
 
 // ---------------- Personen / Heute ----------------
@@ -320,7 +364,8 @@ function viewColumns() {
     const people = chosen.length ? chosen : S.members();
     const ids = new Set(people.flatMap((m) => [...S.eventIds(m)]));
     const events = S.state.events.filter((e) => ids.has(e.collectionId));
-    const todos = people.flatMap((m) => memberTodos(m).filter((t) => !t.completed && (!t.due || t.due <= S.todayIso())).map((t) => [m, t]));
+    const todos = people.flatMap((m) => memberTodos(m).map((t) => [m, t]));
+    const routines = people.map((m) => [m, routinesNow(m)]).filter(([, r]) => r.length);
     const first = people.find((m) => canWrite(m, 'EVENTS')) || people[0];
     return [
       personChips(),
@@ -328,8 +373,10 @@ function viewColumns() {
         h('div', { class: 'head' }, h('div', { class: 'grow' }, h('div', { class: 'name' }, 'Termine'), h('div', { class: 'sub' }, countLabel(events.filter((e) => isOn(e, today)).length, 'Termin heute', 'Termine heute', 'nichts heute'))),
           h('button', { class: 'round small', style: { background: 'var(--card-alt)' }, onclick: () => newEvent(first, today) }, icon('plus'))),
         dayGroups(events, today, 7, people.length > 1)),
+      routines.map(([m, r]) => h('div', { class: 'card' },
+        h('div', { class: 'head' }, avatar(m, 30), h('div', { class: 'grow' }, h('div', { class: 'name' }, 'Routinen ' + m.name))), r)),
       todos.length ? h('div', { class: 'card' },
-        h('div', { class: 'head' }, h('div', { class: 'grow' }, h('div', { class: 'name' }, 'Aufgaben für heute'))),
+        h('div', { class: 'head' }, h('div', { class: 'grow' }, h('div', { class: 'name' }, 'Aufgaben heute und morgen'))),
         todos.map(([m, t]) => h('div', { class: 'withav' }, avatar(m, 26), h('div', { style: { flex: 1 } }, todoRow(t, S.memberColor(m)))))) : null,
     ];
   }
@@ -346,12 +393,13 @@ function memberColumn(ms, today, combined) {
   const first = ms[0];
   const list = [...dayGroups(events, today, 7, combined)];
   for (const m of ms) {
+    list.push(...routinesNow(m));
     const todos = memberTodos(m);
-    const can = canWrite(m, 'TASKS');
+    const can = canWritePlain(m);
     if (!todos.length && !can) continue;
     list.push(h('div', { class: 'section' }, h('span', { class: 'grow' }, combined ? 'Aufgaben ' + m.name : 'Aufgaben'),
       can ? h('button', { class: 'round small', style: { background: 'var(--card-alt)' }, title: 'Neue Aufgabe', onclick: () => newTodo(m) }, icon('plus')) : null));
-    list.push(...todos.map((t) => todoRow(t, S.memberColor(m))));
+    list.push(...(todos.length ? todos.map((t) => todoRow(t, S.memberColor(m))) : [h('div', { class: 'empty' }, 'Nichts fällig')]));
   }
   const key = ms.map((m) => m.id).join('+');
   return h('div', { class: 'card col' + (combined ? ' wide' : '') },
@@ -415,19 +463,57 @@ function searchResults(q, today) {
 // ---------------- Aufgaben ----------------
 
 function viewTasks() {
+  const modes = [];
+  if (S.members().some((m) => routineIds(m).size)) modes.push(['routines', 'Routinen']);
+  if (projectLists().length) modes.push(['projects', 'Projekte']);
+  modes.push(['tasks', 'Aufgaben']);
+  const mode = modes.some(([k]) => k === ui.taskMode) ? ui.taskMode : modes[0][0];
+  const seg = modes.length > 1 ? h('div', { class: 'seg' }, modes.map(([k, l]) =>
+    h('button', { class: mode === k ? 'on' : '', onclick: () => { ui.taskMode = k; render(true); } }, l))) : null;
+  const today = S.todayIso();
+  const now = S.nowWall();
   const cards = [];
-  for (const m of S.members()) {
-    const todos = memberTodos(m);
-    const can = canWrite(m, 'TASKS');
-    if (!todos.length && !can) continue;
-    const open = todos.filter((t) => !t.completed).length;
-    cards.push(h('div', { class: 'card' },
-      h('div', { class: 'head' }, avatar(m, 42),
-        h('div', { class: 'grow' }, h('div', { class: 'name' }, m.name), h('div', { class: 'sub' }, countLabel(open, 'offene Aufgabe', 'offene Aufgaben', 'alles erledigt'))),
-        can ? h('button', { class: 'round small', style: { background: 'var(--card-alt)' }, onclick: () => newTodo(m) }, icon('plus')) : null),
-      todos.length ? todos.map((t) => todoRow(t, S.memberColor(m))) : h('div', { class: 'empty' }, 'Keine Aufgaben')));
+  if (mode === 'routines') {
+    for (const m of S.members()) {
+      const ids = routineIds(m);
+      if (!ids.size) continue;
+      const items = S.state.todos.filter((t) => ids.has(t.collectionId)).map((t) => T.asRoutine(t, today));
+      const target = [...ids].find((id) => !S.collection(id)?.readOnly);
+      cards.push(h('div', { class: 'card' },
+        h('div', { class: 'head' }, avatar(m, 42),
+          h('div', { class: 'grow' }, h('div', { class: 'name' }, m.name), h('div', { class: 'sub' }, `${items.filter((t) => t.completed).length} von ${items.length} heute erledigt`)),
+          target ? h('button', { class: 'round small', style: { background: 'var(--card-alt)' }, title: 'Neue Routine', onclick: () => newTodoIn(m, target) }, icon('plus')) : null),
+        items.length ? T.routinesBySlot(S.state.todos, ids).flatMap(([slot, list]) => routineGroup(T.SLOT_LABEL[slot], list, S.memberColor(m)))
+          : h('div', { class: 'empty' }, 'Noch keine Routinen')));
+    }
+  } else if (mode === 'projects') {
+    for (const c of projectLists()) {
+      const owner = S.ownerOf(c.id);
+      const color = owner ? S.memberColor(owner) : 'var(--accent)';
+      const p = T.progress(S.state.todos, c.id);
+      const steps = T.projectSteps(S.state.todos, c.id, now);
+      cards.push(h('div', { class: 'card' },
+        h('div', { class: 'head' }, owner && !owner.isFamily ? avatar(owner, 34) : null,
+          h('div', { class: 'grow' }, h('div', { class: 'name' }, c.name), h('div', { class: 'sub' }, p.total ? `${p.done} von ${p.total} erledigt` : 'noch keine Schritte')),
+          !c.readOnly ? h('button', { class: 'round small', style: { background: 'var(--card-alt)' }, title: 'Neuer Schritt', onclick: () => newTodoIn(owner, c.id) }, icon('plus')) : null),
+        progressBar(p.fraction, color),
+        steps.length ? steps.map((t) => todoRow(t, color)) : (p.total ? h('div', { class: 'empty' }, 'Alles erledigt 🎉') : null)));
+    }
+  } else {
+    for (const m of S.members()) {
+      const todos = memberAllTodos(m);
+      const can = canWritePlain(m);
+      if (!todos.length && !can) continue;
+      const open = todos.filter((t) => !t.completed).length;
+      cards.push(h('div', { class: 'card' },
+        h('div', { class: 'head' }, avatar(m, 42),
+          h('div', { class: 'grow' }, h('div', { class: 'name' }, m.name), h('div', { class: 'sub' }, countLabel(open, 'offene Aufgabe', 'offene Aufgaben', 'alles erledigt'))),
+          can ? h('button', { class: 'round small', style: { background: 'var(--card-alt)' }, onclick: () => newTodo(m) }, icon('plus')) : null),
+        todos.length ? todos.map((t) => todoRow(t, S.memberColor(m))) : h('div', { class: 'empty' }, 'Keine Aufgaben')));
+    }
   }
-  return cards.length ? h('div', { class: 'school-grid' }, cards) : h('div', { class: 'card' }, h('div', { class: 'empty' }, 'Keine Aufgabenlisten zugeordnet.'));
+  const body = cards.length ? h('div', { class: 'school-grid' }, cards) : h('div', { class: 'card' }, h('div', { class: 'empty' }, 'Keine Aufgabenlisten zugeordnet.'));
+  return seg ? [seg, body] : body;
 }
 
 // ---------------- Schule ----------------
@@ -760,7 +846,7 @@ function newTodo(member) {
 }
 
 function openTodo(t) {
-  todoEditor({ existing: t, collectionId: t.collectionId, summary: t.summary, description: t.description || '', due: t.due, recurrence: t.recurrence }, S.ownerOf(t.collectionId));
+  todoEditor({ existing: t, collectionId: t.collectionId, summary: t.summary, description: t.description || '', due: t.due, dueTime: t.dueTime || null, recurrence: t.recurrence }, S.ownerOf(t.collectionId));
 }
 
 function todoEditor(d, member) {
@@ -775,7 +861,11 @@ function todoEditor(d, member) {
         h('button', { class: 'btn flat', onclick: () => confirmBox.replaceChildren() }, 'Nein'))));
   } }, icon('trash')) : null;
   const dlg = sheet({
-    title: d.existing ? 'Aufgabe bearbeiten' : 'Neue Aufgabe',
+    title: (() => {
+      const r = T.roleOf(S.state.family, d.collectionId);
+      if (!d.existing) return r === T.ROUTINE ? 'Neue Routine' : r === T.PROJECT ? 'Neuer Schritt' : 'Neue Aufgabe';
+      return r === T.ROUTINE ? 'Routine bearbeiten' : 'Aufgabe bearbeiten';
+    })(),
     extra: del,
     onSave: async () => {
       if (!draft.summary.trim()) throw new Error('Bitte einen Titel eingeben');
@@ -787,7 +877,11 @@ function todoEditor(d, member) {
   field('Aufgabe', h('input', { value: draft.summary, autofocus: !d.existing, oninput: (ev) => { draft.summary = ev.target.value; } })),
   field('Liste', h('select', { onchange: (ev) => { draft.collectionId = ev.target.value; } },
     cols.map((c) => h('option', { value: c.id, selected: c.id === draft.collectionId }, collectionLabel(c))))),
-  field('Fällig am (leer = ohne Datum)', h('input', { type: 'date', value: draft.due || '', onchange: (ev) => { draft.due = ev.target.value || null; } })),
+  h('div', { class: 'row2' },
+    field('Fällig am (leer = ohne Datum)', h('input', { type: 'date', value: draft.due || '', onchange: (ev) => { draft.due = ev.target.value || null; } })),
+    field('Uhrzeit (leer = ohne)', h('input', { type: 'time', value: draft.dueTime || '', onchange: (ev) => { draft.dueTime = ev.target.value || null; } }))),
+  T.roleOf(S.state.family, d.collectionId) === T.ROUTINE
+    ? h('p', { style: { color: 'var(--muted)', fontSize: '13px', margin: '4px 2px' } }, 'Routine: wird jeden Tag automatisch wieder offen. Uhrzeit vor 12 Uhr = morgens, ab 12 Uhr = abends, ohne Uhrzeit = ganztags.') : null,
   recurrenceFields(draft.recurrence, (r) => { draft.recurrence = r; }, () => draft.due || S.todayIso()),
   field('Notiz', h('textarea', { oninput: (ev) => { draft.description = ev.target.value; } }, draft.description)));
 }

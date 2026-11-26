@@ -8,6 +8,7 @@ import {
 import { eventsOf, todosOf, timeOf, keyOf, toRRule, nextTodoDate } from './model.js';
 import { schoolBlocks } from './school.js';
 import { categoryOf } from './shopping.js';
+import { roleOf } from './tasks.js';
 
 const DAY = 86400000;
 export const FAMILY_FILE = 'Familienboard/familie.json';
@@ -96,7 +97,9 @@ export function hasSchool() { return (state.family?.schedules || []).length > 0;
 
 /** Schreibbare Sammlungen einer Art; die der Person zuerst. */
 export function writable(member, kind) {
-  const all = state.collections.filter((c) => c.kind === kind && !c.readOnly && c.id !== shoppingId());
+  // normale Aufgabenlisten zuerst, Routinen/Projekte dahinter (E29)
+  const all = state.collections.filter((c) => c.kind === kind && !c.readOnly && c.id !== shoppingId())
+    .sort((a, b) => (kind === 'TASKS' ? (roleOf(state.family, a.id) ? 1 : 0) - (roleOf(state.family, b.id) ? 1 : 0) : 0));
   if (!member) return all;
   const own = all.filter((c) => (member.collectionIds || []).includes(c.id));
   return [...own, ...all.filter((c) => !own.includes(c))];
@@ -589,7 +592,18 @@ function applyTodoRule(t, d) {
   t.set('RRULE', rule);
 }
 
-/** Entwurf: { existing, collectionId, summary, description, due (ISO oder null), recurrence } */
+/** Fälligkeit: nur Datum oder mit Uhrzeit (dann UTC – verstehen alle Apps ohne VTIMEZONE). */
+function setDue(t, dueIso, dueTime) {
+  let v; let params = {};
+  if (dueTime) {
+    const [hh, mm] = dueTime.split(':').map(Number);
+    v = formatUtc(wallToInstant(wallOfIso(dueIso, hh, mm), zone()));
+  } else { v = dueIso.replace(/-/g, ''); params = { VALUE: 'DATE' }; }
+  t.set('DUE', v, params);
+  if (t.prop('DTSTART') && !t.prop('RRULE')) t.set('DTSTART', v, params);
+}
+
+/** Entwurf: { existing, collectionId, summary, description, due (ISO oder null), dueTime ('HH:MM' oder null), recurrence } */
 export async function saveTodo(d) {
   const coll = requireColl(d.collectionId);
   if (coll.readOnly || coll.kind !== 'TASKS') throw new DavError('In diese Liste kann nicht geschrieben werden');
@@ -597,7 +611,11 @@ export async function saveTodo(d) {
   const fields = (t) => {
     t.setText('SUMMARY', d.summary.trim() || 'Aufgabe');
     if ((d.description || '').trim()) t.setText('DESCRIPTION', d.description.trim()); else t.remove('DESCRIPTION');
-    if (d.due) t.set('DUE', d.due.replace(/-/g, ''), { VALUE: 'DATE' }); else t.remove('DUE');
+    const time = d.recurrence?.freq && d.recurrence.freq !== 'NONE' ? null : (d.dueTime || null);
+    if (d.due) {
+      // unveränderte Fälligkeit nicht neu schreiben (Format der anderen App bleibt)
+      if (!ex || ex.due !== d.due || (ex.dueTime || null) !== time) setDue(t, d.due, time);
+    } else t.remove('DUE');
     applyTodoRule(t, d);
   };
   if (!ex) {

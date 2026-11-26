@@ -162,6 +162,8 @@ export function todosOf(coll, obj, board) {
       summary: (t.text('SUMMARY') || '').trim() || '(ohne Titel)',
       description: (t.text('DESCRIPTION') || '').trim() || null,
       due: due ? isoDate(wallOf(due, board)) : null,
+      // Uhrzeit der Fälligkeit (Routinen morgens/abends, E29), null = nur Datum
+      dueTime: due && !due.allDay ? new Date(wallOf(due, board)).toISOString().slice(11, 16) : null,
       completed: status === 'COMPLETED' || !!comp,
       completedAt: comp ? wallOf(comp, board) : null,
       priority: parseInt(t.text('PRIORITY') || '0', 10) || 0,
