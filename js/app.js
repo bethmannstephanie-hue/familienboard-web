@@ -6,6 +6,7 @@ import { isBlock, STATE_LABEL } from './school.js';
 import { categoryOf, categoryRank, parseItems, CATEGORIES } from './shopping.js';
 import { isDark } from './sun.js';
 import * as T from './tasks.js';
+import { factOfDay } from './funfacts.js';
 import { upcomingMeals, mealDayLabel, mealDuration, mealHeadline, MEAL_DAYS } from './meals.js';
 
 const DAY = 86400000;
@@ -124,10 +125,10 @@ async function run(action, okText) {
 // ---------------- Zustand der Oberfläche (pro Gerät) ----------------
 
 function loadUi() { try { return JSON.parse(localStorage.getItem('fb.ui') || '{}'); } catch { return {}; } }
-const ui = { view: 'columns', filter: [], weekOffset: 0, search: '', schoolTab: null, taskMode: null, ...loadUi() };
+const ui = { view: 'columns', filter: [], weekOffset: 0, search: '', schoolTab: null, taskMode: null, taskFilter: [], ...loadUi() };
 // Aufgaben in der Personen-Ansicht: heute und morgen (wie am Board, E29)
 const TASK_DAYS = 2;
-function saveUi() { try { localStorage.setItem('fb.ui', JSON.stringify({ view: ui.view, filter: ui.filter })); } catch { /* privat */ } }
+function saveUi() { try { localStorage.setItem('fb.ui', JSON.stringify({ view: ui.view, filter: ui.filter, taskFilter: ui.taskFilter })); } catch { /* privat */ } }
 function setView(v) { ui.view = v; ui.search = ''; ui.weekOffset = 0; ui.schoolTab = null; saveUi(); render(true); }
 
 const narrow = () => window.matchMedia('(max-width: 760px)').matches;
@@ -369,6 +370,7 @@ function viewColumns() {
     const first = people.find((m) => canWrite(m, 'EVENTS')) || people[0];
     return [
       personChips(),
+      factLine(),
       h('div', { class: 'card' },
         h('div', { class: 'head' }, h('div', { class: 'grow' }, h('div', { class: 'name' }, 'Termine'), h('div', { class: 'sub' }, countLabel(events.filter((e) => isOn(e, today)).length, 'Termin heute', 'Termine heute', 'nichts heute'))),
           h('button', { class: 'round small', style: { background: 'var(--card-alt)' }, onclick: () => newEvent(first, today) }, icon('plus'))),
@@ -384,7 +386,12 @@ function viewColumns() {
   const cols = [];
   if (chosen.length) cols.push(memberColumn(chosen, today, true));
   for (const m of others) cols.push(memberColumn([m], today, false));
-  return [personChips(), h('div', { class: 'cols' }, cols)];
+  return [personChips(), factLine(), h('div', { class: 'cols' }, cols)];
+}
+
+/** „Wusstest du?“ – Fun Fact des Tages, gleiche Reihenfolge wie in der App (E32). */
+function factLine() {
+  return h('div', { class: 'fact' }, h('b', {}, 'Wusstest du? '), factOfDay(S.todayIso()));
 }
 
 function memberColumn(ms, today, combined) {
@@ -464,8 +471,9 @@ function searchResults(q, today) {
 
 function taskChips(filter) {
   const toggle = (id) => {
-    if (id === null) ui.filter = [];
-    else ui.filter = filter.has(id) ? ui.filter.filter((x) => x !== id) : [...ui.filter, id];
+    if (id === null) ui.taskFilter = [];
+    else ui.taskFilter = filter.has(id) ? ui.taskFilter.filter((x) => x !== id) : [...ui.taskFilter, id];
+    if (ui.taskFilter.length === S.members().length) ui.taskFilter = [];
     saveUi();
     render();
   };
@@ -480,7 +488,8 @@ function viewTasks() {
   if (projectLists().length) modes.push(['projects', 'Projekte']);
   modes.push(['tasks', 'Aufgaben']);
   const mode = modes.some(([k]) => k === ui.taskMode) ? ui.taskMode : modes[0][0];
-  const filter = new Set(ui.filter);
+  // eigene Auswahl für die Aufgaben, unabhängig von Personen/Woche (E31)
+  const filter = new Set(ui.taskFilter || []);
   const people = S.members().filter((m) => !filter.size || filter.has(m.id));
   const seg = h('div', { class: 'seg', style: { margin: '0' } }, modes.map(([k, l]) =>
     h('button', { class: mode === k ? 'on' : '', onclick: () => { ui.taskMode = k; render(true); } }, l)));
@@ -512,7 +521,7 @@ function viewTasks() {
     else if (rp.length === 1) {
       const m = rp[0]; const ids = routineIds(m);
       rBody = T.routinesBySlot(S.state.todos, ids).flatMap(([slot, list]) => routineGroup(T.SLOT_LABEL[slot], list, S.memberColor(m)));
-    } else rBody = sums.map(([m, x]) => h('button', { class: 'rsum', onclick: () => { ui.filter = [m.id]; saveUi(); render(); } }, avatar(m, 36),
+    } else rBody = sums.map(([m, x]) => h('button', { class: 'rsum', onclick: () => { ui.taskFilter = [m.id]; saveUi(); render(); } }, avatar(m, 36),
       h('div', { class: 'grow' }, h('div', { class: 'line' }, h('b', {}, m.name), h('span', { class: 'cnt' }, `${x.done}/${x.total}`)),
         progressBar(x.total ? x.done / x.total : 0, S.memberColor(m)),
         h('div', { class: 'sub' }, x.next ? 'als Nächstes: ' + x.next.summary + (x.next.dueTime ? ' · ' + x.next.dueTime.replace(/^0/, '') : '') : 'Alles erledigt'))));

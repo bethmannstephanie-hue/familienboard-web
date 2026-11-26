@@ -249,3 +249,5 @@ main { flex: 1; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch
 .prow .head { padding: 0 2px; }
 .section.late { color: var(--danger); }
 @media (max-width: 1000px) { .overview { grid-template-columns: 1fr; } }
+.fact { background: var(--card); border-radius: 20px; padding: 10px 16px; margin: 0 4px 12px; font-size: calc(14px * var(--fs)); }
+.fact b { color: var(--warn); font-weight: 600; }
