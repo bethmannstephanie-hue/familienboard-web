@@ -469,6 +469,10 @@ function searchResults(q, today) {
 
 // ---------------- Aufgaben ----------------
 
+function routineHint(m) {
+  return `Für ${m.name} ist noch keine Routine-Liste eingerichtet. In Nextcloud eine Aufgabenliste anlegen (z. B. „Routine ${m.name}“), mit dem Board-Konto teilen und in der Android-App unter Einstellungen ${m.name} zuordnen und auf „Routine“ stellen.`;
+}
+
 function taskChips(filter) {
   const toggle = (id) => {
     if (id === null) ui.taskFilter = [];
@@ -517,7 +521,7 @@ function viewTasks() {
     const sums = rp.map((m) => [m, T.routineSummary(S.state.todos, routineIds(m), now)]);
     const done = sums.reduce((a, [, x]) => a + x.done, 0), total = sums.reduce((a, [, x]) => a + x.total, 0);
     let rBody;
-    if (!rp.length) rBody = h('div', { class: 'empty' }, 'Keine Routinen eingerichtet');
+    if (!rp.length) rBody = h('div', { class: 'empty' }, filter.size === 1 ? routineHint(people[0]) : 'Keine Routinen eingerichtet');
     else if (rp.length === 1) {
       const m = rp[0]; const ids = routineIds(m);
       rBody = T.routinesBySlot(S.state.todos, ids).flatMap(([slot, list]) => routineGroup(T.SLOT_LABEL[slot], list, S.memberColor(m)));
@@ -546,7 +550,12 @@ function viewTasks() {
   if (mode === 'routines') {
     for (const m of people) {
       const ids = routineIds(m);
-      if (!ids.size) continue;
+      if (!ids.size && !filter.size) continue;
+      if (!ids.size) {
+        cards.push(h('div', { class: 'card' }, h('div', { class: 'head' }, avatar(m, 42), h('div', { class: 'grow' }, h('div', { class: 'name' }, m.name))),
+          h('div', { class: 'empty' }, routineHint(m))));
+        continue;
+      }
       const items = S.state.todos.filter((t) => ids.has(t.collectionId)).map((t) => T.asRoutine(t, today));
       const target = [...ids].find((id) => !S.collection(id)?.readOnly);
       cards.push(h('div', { class: 'card' },

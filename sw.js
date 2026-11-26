@@ -13,7 +13,8 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request).then((r) => {
+    // no-cache: immer beim Server nachfragen (ETag), sonst liefert der Browser-Cache von GitHub Pages bis zu 10 Min. alte Dateien
+    fetch(e.request.url, { cache: 'no-cache', credentials: 'same-origin' }).then((r) => {
       if (r.ok) { const copy = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
       return r;
     }).catch(() => caches.match(e.request, { ignoreSearch: true }).then((r) => r || caches.match('index.html'))),
