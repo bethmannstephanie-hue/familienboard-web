@@ -928,6 +928,13 @@ function todoEditor(d, member) {
         h('button', { class: 'btn danger', onclick: async () => { if (await run(() => S.deleteTodo(d.existing), 'Gelöscht')) dlg.close(); } }, 'Löschen'),
         h('button', { class: 'btn flat', onclick: () => confirmBox.replaceChildren() }, 'Nein'))));
   } }, icon('trash')) : null;
+  const isRoutine = () => T.roleOf(S.state.family, draft.collectionId) === T.ROUTINE;
+  const recBox = h('div', {});
+  const recFields = recurrenceFields(draft.recurrence, (r) => { draft.recurrence = r; }, () => draft.due || S.todayIso());
+  const drawRec = () => recBox.replaceChildren(isRoutine()
+    ? h('p', { style: { color: 'var(--muted)', fontSize: '13px', margin: '4px 2px' } }, 'Routine: wird jeden Tag automatisch wieder offen. Uhrzeit vor 12 Uhr = morgens, ab 12 Uhr = abends, ohne Uhrzeit = ganztags.')
+    : recFields);
+  drawRec();
   const dlg = sheet({
     title: (() => {
       const r = T.roleOf(S.state.family, d.collectionId);
@@ -937,20 +944,20 @@ function todoEditor(d, member) {
     extra: del,
     onSave: async () => {
       if (!draft.summary.trim()) throw new Error('Bitte einen Titel eingeben');
+      // Routinen setzt das Hauptgerät täglich zurück – keine zusätzliche Wiederholung speichern
+      if (isRoutine()) draft.recurrence = parseRecurrence(null);
       await S.saveTodo(draft);
       toast('Gespeichert');
     },
   },
   confirmBox,
   field('Aufgabe', h('input', { value: draft.summary, autofocus: !d.existing, oninput: (ev) => { draft.summary = ev.target.value; } })),
-  field('Liste', h('select', { onchange: (ev) => { draft.collectionId = ev.target.value; } },
+  field('Liste', h('select', { onchange: (ev) => { draft.collectionId = ev.target.value; drawRec(); } },
     cols.map((c) => h('option', { value: c.id, selected: c.id === draft.collectionId }, collectionLabel(c))))),
   h('div', { class: 'row2' },
     field('Fällig am (leer = ohne Datum)', h('input', { type: 'date', value: draft.due || '', onchange: (ev) => { draft.due = ev.target.value || null; } })),
     field('Uhrzeit (leer = ohne)', h('input', { type: 'time', value: draft.dueTime || '', onchange: (ev) => { draft.dueTime = ev.target.value || null; } }))),
-  T.roleOf(S.state.family, d.collectionId) === T.ROUTINE
-    ? h('p', { style: { color: 'var(--muted)', fontSize: '13px', margin: '4px 2px' } }, 'Routine: wird jeden Tag automatisch wieder offen. Uhrzeit vor 12 Uhr = morgens, ab 12 Uhr = abends, ohne Uhrzeit = ganztags.') : null,
-  recurrenceFields(draft.recurrence, (r) => { draft.recurrence = r; }, () => draft.due || S.todayIso()),
+  recBox,
   field('Notiz', h('textarea', { oninput: (ev) => { draft.description = ev.target.value; } }, draft.description)));
 }
 
