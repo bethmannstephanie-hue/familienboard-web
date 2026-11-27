@@ -260,7 +260,30 @@ function eventRow(e, d, opts = {}) {
   e.location && !opts.noLocation ? h('div', { class: 'l' }, e.location) : null);
 }
 
-function todoRow(t, color, note = null) {
+// Funkenkranz beim Abhaken (E35, wie in der App): kurz, in der Personenfarbe; ganzer Block → größer mit Hinweis
+const ROUTINE_DONE = { Morgens: 'Morgenroutine geschafft', Abends: 'Abendroutine geschafft' };
+function celebrate(btn, color, label) {
+  if (S.state.device.celebrate === 'off' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const r = btn.getBoundingClientRect();
+  const big = !!label;
+  const box = h('div', { class: 'burst', style: { left: r.left + r.width / 2 + 'px', top: r.top + r.height / 2 + 'px', '--c': color } });
+  box.append(h('span', { class: 'ring' }));
+  const n = big ? 14 : 8;
+  for (let i = 0; i < n; i++) {
+    const a = (360 / n) * i + (i % 2 ? 9 : -6);
+    const d = big ? 40 + (i % 3) * 9 : 22 + (i % 2) * 4;
+    box.append(h('span', { class: 'spark' + (big && i % 3 === 1 ? ' gold' : ''), style: { '--a': a + 'deg', '--d': d + 'px', animationDuration: big ? '900ms' : '520ms' } }));
+  }
+  if (big) {
+    const x = Math.max(8, Math.min(r.left - 10, window.innerWidth - 240));
+    document.body.append(h('div', { class: 'burst-label', style: { left: x + 'px', top: Math.max(0, r.top - 50) + 'px', color } }, label));
+    setTimeout(() => document.querySelector('.burst-label')?.remove(), 2300);
+  }
+  document.body.append(box);
+  setTimeout(() => box.remove(), big ? 1000 : 650);
+}
+
+function todoRow(t, color, note = null, blockDoneLabel = null) {
   const today = S.todayIso();
   const due = t.completed ? null : dueLabel(t, today);
   const rep = !t.completed && t.recurrence.freq !== 'NONE' ? '↻ ' + describeRecurrence(t.recurrence) : null;
@@ -268,7 +291,10 @@ function todoRow(t, color, note = null) {
   return h('div', { class: 'todo' + (t.completed ? ' done' : ''), style: { '--c': color } },
     h('button', {
       class: 'check' + (t.completed ? ' on' : ''), disabled: t.readOnly, 'aria-label': t.completed ? 'Wieder öffnen' : 'Erledigt',
-      onclick: () => run(() => S.setTodoDone(t, !t.completed), (next) => (next ? 'Nächste Fälligkeit: ' + short(wallOfIso(next)) : null)),
+      onclick: (ev) => {
+        if (!t.completed) celebrate(ev.currentTarget, color, blockDoneLabel);
+        run(() => S.setTodoDone(t, !t.completed), (next) => (next ? 'Nächste Fälligkeit: ' + short(wallOfIso(next)) : null));
+      },
     }, t.completed ? icon('check') : null),
     h('button', { class: 'body', onclick: () => !t.readOnly && openTodo(t) },
       h('div', { class: 's' }, t.summary),
@@ -303,7 +329,10 @@ function routineGroup(title, items, color) {
   return [
     h('div', { class: 'section routine' }, h('span', {}, title), h('span', { class: 'cnt' + (done === shown.length ? ' all' : '') }, `${done}/${shown.length}`),
       progressBar(shown.length ? done / shown.length : 0, color)),
-    ...shown.map((t) => todoRow(t, color, t.dueTime ? t.dueTime.replace(/^0/, '') : '')),
+    ...shown.map((t) => {
+      const last = !t.completed && shown.length > 1 && shown.every((o) => o.completed || o.href === t.href);
+      return todoRow(t, color, t.dueTime ? t.dueTime.replace(/^0/, '') : '', last ? (ROUTINE_DONE[title] || 'Alles geschafft') : null);
+    }),
   ];
 }
 
@@ -974,6 +1003,7 @@ function openSettings() {
     h('div', { class: 'section' }, 'Darstellung (nur dieses Gerät)'),
     choice('Hell oder dunkel', 'theme', [['auto', `Automatisch: dunkel nach Sonnenuntergang${fam?.weatherPlace ? ' in ' + fam.weatherPlace : ''}`], ['system', 'Wie das Gerät'], ['light', 'Immer hell'], ['dark', 'Immer dunkel']]),
     choice('Schriftgröße', 'fontScale', [['normal', 'Normal'], ['large', 'Groß'], ['xlarge', 'Sehr groß']]),
+    choice('Funkenkranz beim Abhaken', 'celebrate', [['on', 'An'], ['off', 'Aus']]),
     h('div', { class: 'section' }, 'Familie'),
     h('div', { class: 'field' }, h('div', { class: 'toggle info' },
       `${S.members().map((m) => m.name).join(', ') || '–'}` + (changed ? `\nEingerichtet zuletzt ${changed}${fam.changedBy ? ' (' + fam.changedBy + ')' : ''}` : ''))),
