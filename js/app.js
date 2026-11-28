@@ -744,9 +744,14 @@ function mealCard() {
 // dann close() und entfernen – so klappt die Ausblende-Animation in allen Browsern gleich.
 function sheet({ title, onSave, saveLabel = 'Speichern', extra }, ...content) {
   let closing = false;
+  const opener = document.activeElement;
   const finish = () => {
     if (box.open) box.close();
-    if (box.isConnected) { box.remove(); render(); }
+    if (!box.isConnected) return;
+    box.remove();
+    render();
+    // render() baut die Knöpfe neu – Fokus auf den neuen Knopf mit gleichem Titel zurücksetzen.
+    if (opener && !opener.isConnected && opener.title) $app.querySelector(`[title="${CSS.escape(opener.title)}"]`)?.focus({ preventScroll: true });
   };
   const close = async () => {
     if (closing || !box.isConnected) return;
