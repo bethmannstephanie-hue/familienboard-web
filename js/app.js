@@ -108,6 +108,8 @@ function toast(text) {
   document.querySelectorAll('.toast').forEach((x) => x.remove());
   const t = h('div', { class: 'toast' }, text);
   document.body.append(t);
+  // Als Popover in die oberste Ebene, damit die Meldung auch über einem offenen Dialog sichtbar ist.
+  if (typeof t.showPopover === 'function') { t.popover = 'manual'; t.showPopover(); }
   setTimeout(() => t.remove(), 3200);
 }
 
@@ -737,10 +739,28 @@ function mealCard() {
 
 // ---------------- Dialoge ----------------
 
+// Natives <dialog> mit showModal(): Fokus bleibt im Dialog, Esc schließt, Hintergrund ist gesperrt.
+// Öffnen animiert per CSS (@starting-style). Schließen: [data-closing] setzen, Übergang abwarten,
+// dann close() und entfernen – so klappt die Ausblende-Animation in allen Browsern gleich.
 function sheet({ title, onSave, saveLabel = 'Speichern', extra }, ...content) {
-  const close = () => { $layer.replaceChildren(); document.removeEventListener('keydown', onKey); render(); };
-  const onKey = (ev) => { if (ev.key === 'Escape') close(); };
-  document.addEventListener('keydown', onKey);
+  let closing = false;
+  const opener = document.activeElement;
+  const finish = () => {
+    if (box.open) box.close();
+    if (!box.isConnected) return;
+    box.remove();
+    render();
+    // render() baut die Knöpfe neu – Fokus auf den neuen Knopf mit gleichem Titel zurücksetzen.
+    if (opener && !opener.isConnected && opener.title) $app.querySelector(`[title="${CSS.escape(opener.title)}"]`)?.focus({ preventScroll: true });
+  };
+  const close = async () => {
+    if (closing || !box.isConnected) return;
+    closing = true;
+    box.setAttribute('data-closing', '');
+    const anims = box.getAnimations({ subtree: true });
+    if (anims.length) await Promise.race([Promise.allSettled(anims.map((a) => a.finished)), new Promise((r) => setTimeout(r, 500))]);
+    finish();
+  };
   const err = h('div', { class: 'err hidden' });
   const saveBtn = onSave ? h('button', { class: 'btn' }, saveLabel) : null;
   if (saveBtn) {
@@ -750,12 +770,23 @@ function sheet({ title, onSave, saveLabel = 'Speichern', extra }, ...content) {
       try { await onSave(); close(); } catch (e) { err.textContent = e.message || String(e); err.classList.remove('hidden'); saveBtn.disabled = false; }
     };
   }
-  const box = h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' },
+  const heading = h('h2', { id: 'sheet-title' }, title);
+  const box = h('dialog', { class: 'sheet', 'aria-labelledby': 'sheet-title' },
     h('div', { class: 'bar' }, h('button', { class: 'btn flat', onclick: close }, onSave ? 'Abbrechen' : 'Schließen'), h('div', { class: 'grow' }), extra || null, saveBtn),
-    h('h2', {}, title),
+    heading,
     h('div', { class: 'content' }, err, content));
-  const scrim = h('div', { class: 'scrim', onclick: (ev) => { if (ev.target === scrim) close(); } }, box);
-  $layer.replaceChildren(scrim);
+  // Esc / Zurück-Geste: animiert schließen statt sofort.
+  box.addEventListener('cancel', (ev) => { ev.preventDefault(); close(); });
+  // Falls der Browser trotzdem direkt schließt (z. B. wiederholtes Esc): aufräumen.
+  box.addEventListener('close', finish);
+  // Tippen auf den abgedunkelten Hintergrund schließt – aber nur, wenn der Druck auch dort begann
+  // (sonst schließt ein Markieren von Text, das außerhalb endet, den Dialog).
+  const outside = (ev) => { const r = box.getBoundingClientRect(); return ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom; };
+  let downOutside = false;
+  box.addEventListener('pointerdown', (ev) => { downOutside = ev.target === box && outside(ev); });
+  box.addEventListener('click', (ev) => { if (downOutside && ev.target === box && outside(ev)) close(); downOutside = false; });
+  $layer.replaceChildren(box);
+  box.showModal();
   return { close, err, box };
 }
 
